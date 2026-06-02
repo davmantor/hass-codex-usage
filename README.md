@@ -31,14 +31,44 @@ A custom Home Assistant integration that monitors your OpenAI Codex subscription
 
 ## Setup
 
-The integration uses Codex OAuth credentials created by the Codex CLI:
+The integration uses Codex OAuth credentials created by the [Codex CLI](https://github.com/davmantor/codex-cli).
 
-1. On the Home Assistant host, install Codex and run `codex login`
-2. Confirm the host has a Codex auth file, normally `~/.codex/auth.json`
-3. Add the integration in Home Assistant
-4. Enter the auth file path from the Home Assistant host
+### 1. Generate Auth Token
+On the machine where the Codex CLI is installed, run:
+```bash
+codex login
+```
+This generates an authentication file at `~/.codex/auth.json`.
 
-The integration reads the Codex auth file at each poll. It does not store your Codex access token in the Home Assistant config entry.
+### 2. Synchronize to Home Assistant
+If you are running Home Assistant in **Docker** or **Home Assistant OS**, the integration cannot directly access the host's `~/.codex` directory. You must synchronize the auth file to your Home Assistant `/config` directory.
+
+**Recommended Sync Script (`/usr/local/bin/sync-codex-auth.sh`):**
+```bash
+#!/bin/bash
+# Sync Codex auth from host to HA config
+SOURCE="/root/.codex/auth.json"
+DEST="/config/.codex/auth.json"
+
+mkdir -p "$(dirname "$DEST")"
+cp "$SOURCE" "$DEST"
+chmod 644 "$DEST"
+```
+
+**Automate with Cron:**
+Add the following to your host's crontab (`crontab -e`) to keep the token fresh (tokens typically refresh every 15-30 minutes):
+```cron
+*/15 * * * * /usr/local/bin/sync-codex-auth.sh
+```
+
+### 3. Add Integration
+1. Go to **Settings -> Devices & Services -> Add Integration -> "Codex Usage"**.
+2. When prompted for the **Auth File Path**, enter:
+   ```text
+   /config/.codex/auth.json
+   ```
+
+The integration reads this file at each poll. It does not store your access token in the Home Assistant database.
 
 ## Options
 
