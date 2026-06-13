@@ -2,10 +2,8 @@
 
 from __future__ import annotations
 
-import json
 import logging
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from typing import Any
 
 import aiohttp
@@ -16,6 +14,18 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from homeassistant.helpers import aiohttp_client
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
+from .auth import (
+    AuthFileError,
+    CodexAuthFile,
+    RefreshTokenRejectedError,
+    RefreshTokenResponseError,
+    TOKEN_REFRESH_URL,
+    access_token_needs_refresh,
+    build_refresh_request,
+    persist_refreshed_tokens,
+    read_auth_file,
+    refresh_rejection_from_response,
+)
 from .const import (
     CONF_AUTH_FILE,
     CONF_UPDATE_INTERVAL,
@@ -29,6 +39,10 @@ _LOGGER = logging.getLogger(__name__)
 PLATFORMS = [Platform.SENSOR]
 
 type CodexUsageConfigEntry = ConfigEntry[CodexUsageCoordinator]
+
+
+class _UsageUnauthorized(Exception):
+    """Raised when the usage endpoint rejects the access token."""
 
 
 async def async_setup_entry(hass: HomeAssistant, entry: CodexUsageConfigEntry) -> bool:
@@ -72,49 +86,137 @@ class CodexUsageCoordinator(DataUpdateCoordinator[dict[str, Any]]):
     async def _async_update_data(self) -> dict[str, Any]:
         """Fetch usage data from the Codex usage API."""
         auth_file = self.config_entry.data[CONF_AUTH_FILE]
-        access_token = await self.hass.async_add_executor_job(_read_access_token, auth_file)
-        if access_token is None:
-            raise ConfigEntryAuthFailed("Codex auth file is missing an access token")
+        auth = await self._async_read_auth_file(auth_file)
+        session = aiohttp_client.async_get_clientsession(self.hass)
+        refreshed = False
 
-        headers = {
-            "Authorization": f"Bearer {access_token}",
-            "Accept": "application/json",
-            "Originator": "codex_cli_rs",
-            "User-Agent": "hass-codex-usage",
-        }
+        access_token = auth.access_token
+        if access_token_needs_refresh(access_token):
+            access_token = await self._async_refresh_access_token(session, auth_file, auth)
+            refreshed = True
 
         try:
-            session = aiohttp_client.async_get_clientsession(self.hass)
-            resp = await session.get(
-                USAGE_API_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
-            )
-            if resp.status == 401:
+            raw = await _async_fetch_usage(session, access_token)
+        except _UsageUnauthorized as err:
+            if refreshed or not auth.refresh_token:
                 raise ConfigEntryAuthFailed(
-                    "Codex authentication failed. Refresh the auth file with Codex login."
-                )
-            resp.raise_for_status()
-            raw = await resp.json()
-        except aiohttp.ClientError as err:
-            raise UpdateFailed(f"Error fetching usage data: {err}") from err
+                    "Codex authentication failed. Run codex login again and update the auth file."
+                ) from err
+
+            auth = await self._async_read_auth_file(auth_file)
+            access_token = await self._async_refresh_access_token(session, auth_file, auth)
+            try:
+                raw = await _async_fetch_usage(session, access_token)
+            except _UsageUnauthorized as retry_err:
+                raise ConfigEntryAuthFailed(
+                    "Codex authentication failed after refreshing tokens. "
+                    "Run codex login again and update the auth file."
+                ) from retry_err
 
         return _parse_usage(raw)
 
+    async def _async_read_auth_file(self, auth_file: str) -> CodexAuthFile:
+        """Read the Codex auth file without treating parse errors as auth failure."""
+        try:
+            return await self.hass.async_add_executor_job(read_auth_file, auth_file)
+        except AuthFileError as err:
+            raise UpdateFailed(str(err)) from err
 
-def _read_access_token(auth_file: str) -> str | None:
-    """Read the access token from the Codex auth file."""
+    async def _async_refresh_access_token(
+        self, session: aiohttp.ClientSession, auth_file: str, auth: CodexAuthFile
+    ) -> str:
+        """Refresh OAuth tokens and persist the updated auth file."""
+        if not auth.refresh_token:
+            raise ConfigEntryAuthFailed(
+                "Codex auth file is missing a refresh token. Run codex login again and update "
+                "the auth file."
+            )
+
+        try:
+            refresh_response = await _async_request_token_refresh(session, auth.refresh_token)
+        except RefreshTokenRejectedError as err:
+            raise ConfigEntryAuthFailed(str(err)) from err
+
+        try:
+            return await self.hass.async_add_executor_job(
+                persist_refreshed_tokens, auth_file, auth.data, refresh_response
+            )
+        except RefreshTokenResponseError as err:
+            raise UpdateFailed(f"Codex token refresh returned unusable data: {err}") from err
+        except OSError as err:
+            raise UpdateFailed(f"Unable to persist refreshed Codex auth file: {err}") from err
+
+
+async def _async_request_token_refresh(
+    session: aiohttp.ClientSession, refresh_token: str
+) -> dict[str, Any]:
+    """Request fresh tokens from the Codex OAuth token endpoint."""
+    headers = {
+        "Accept": "application/json",
+        "Content-Type": "application/json",
+        "Originator": "codex_cli_rs",
+        "User-Agent": "hass-codex-usage",
+    }
+
     try:
-        with Path(auth_file).expanduser().open(encoding="utf-8") as file:
-            auth_data = json.load(file)
-    except (OSError, json.JSONDecodeError):
-        _LOGGER.exception("Unable to read Codex auth file")
-        return None
+        async with session.post(
+            TOKEN_REFRESH_URL,
+            headers=headers,
+            json=build_refresh_request(refresh_token),
+            timeout=aiohttp.ClientTimeout(total=15),
+        ) as resp:
+            if not 200 <= resp.status < 300:
+                body = await resp.text()
+                rejection = refresh_rejection_from_response(resp.status, body)
+                if rejection is not None:
+                    _LOGGER.warning("Codex refresh token was rejected: %s", rejection)
+                    raise rejection
+                raise UpdateFailed(f"Error refreshing Codex token: HTTP {resp.status}")
 
-    tokens = auth_data.get("tokens")
-    if not isinstance(tokens, dict):
-        return None
+            raw = await resp.json()
+    except RefreshTokenRejectedError:
+        raise
+    except aiohttp.ClientError as err:
+        raise UpdateFailed(f"Error refreshing Codex token: {err}") from err
+    except ValueError as err:
+        raise UpdateFailed(f"Error decoding Codex token refresh response: {err}") from err
 
-    access_token = tokens.get("access_token")
-    return access_token if isinstance(access_token, str) and access_token else None
+    if not isinstance(raw, dict):
+        raise UpdateFailed("Codex token refresh response was not a JSON object")
+    if not isinstance(raw.get("access_token"), str) or not raw["access_token"]:
+        raise UpdateFailed("Codex token refresh response did not include an access token")
+    return raw
+
+
+async def _async_fetch_usage(
+    session: aiohttp.ClientSession, access_token: str
+) -> dict[str, Any]:
+    """Fetch usage data with a bearer access token."""
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "Accept": "application/json",
+        "Originator": "codex_cli_rs",
+        "User-Agent": "hass-codex-usage",
+    }
+
+    try:
+        async with session.get(
+            USAGE_API_URL, headers=headers, timeout=aiohttp.ClientTimeout(total=15)
+        ) as resp:
+            if resp.status == 401:
+                raise _UsageUnauthorized()
+            resp.raise_for_status()
+            raw = await resp.json()
+    except _UsageUnauthorized:
+        raise
+    except aiohttp.ClientError as err:
+        raise UpdateFailed(f"Error fetching usage data: {err}") from err
+    except ValueError as err:
+        raise UpdateFailed(f"Error decoding usage data: {err}") from err
+
+    if not isinstance(raw, dict):
+        raise UpdateFailed("Codex usage response was not a JSON object")
+    return raw
 
 
 def _parse_usage(raw: dict[str, Any]) -> dict[str, Any]:

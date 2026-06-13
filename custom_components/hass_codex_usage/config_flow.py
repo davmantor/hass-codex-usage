@@ -45,7 +45,7 @@ class CodexUsageConfigFlow(ConfigFlow, domain=DOMAIN):
 
             if auth_data is None:
                 errors[CONF_AUTH_FILE] = "auth_file_unreadable"
-            elif _get_access_token(auth_data) is None:
+            elif _get_access_token(auth_data) is None and _get_refresh_token(auth_data) is None:
                 errors[CONF_AUTH_FILE] = "missing_access_token"
             else:
                 account_name, subscription_level = _get_account_info(auth_data)
@@ -126,6 +126,16 @@ def _get_access_token(auth_data: dict[str, Any]) -> str | None:
 
     access_token = tokens.get("access_token")
     return access_token if isinstance(access_token, str) and access_token else None
+
+
+def _get_refresh_token(auth_data: dict[str, Any]) -> str | None:
+    """Return the Codex refresh token from auth.json."""
+    tokens = auth_data.get("tokens")
+    if not isinstance(tokens, dict):
+        return None
+
+    refresh_token = tokens.get("refresh_token")
+    return refresh_token if isinstance(refresh_token, str) and refresh_token else None
 
 
 def _get_account_info(auth_data: dict[str, Any]) -> tuple[str | None, str | None]:

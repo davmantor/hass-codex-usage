@@ -40,13 +40,12 @@ codex login
 ```
 This generates an authentication file at `~/.codex/auth.json`.
 
-### 2. Synchronize to Home Assistant
-If you are running Home Assistant in **Docker** or **Home Assistant OS**, the integration cannot directly access the host's `~/.codex` directory. You must synchronize the auth file to your Home Assistant `/config` directory.
+### 2. Copy Auth File to Home Assistant
+If you are running Home Assistant in **Docker** or **Home Assistant OS**, the integration cannot directly access the host's `~/.codex` directory. Copy the auth file to your Home Assistant `/config` directory once.
 
-**Recommended Sync Script (`/usr/local/bin/sync-codex-auth.sh`):**
+**Example Copy Script (`/usr/local/bin/copy-codex-auth.sh`):**
 ```bash
 #!/bin/bash
-# Sync Codex auth from host to HA config
 SOURCE="/root/.codex/auth.json"
 DEST="/config/.codex/auth.json"
 
@@ -55,11 +54,7 @@ cp "$SOURCE" "$DEST"
 chmod 644 "$DEST"
 ```
 
-**Automate with Cron:**
-Add the following to your host's crontab (`crontab -e`) to keep the token fresh (tokens typically refresh every 15-30 minutes):
-```cron
-*/15 * * * * /usr/local/bin/sync-codex-auth.sh
-```
+The integration reads this file at each poll and refreshes expired or near-expired Codex OAuth access tokens in place using the stored `refresh_token`. You do not need a cron job to keep the access token synchronized. If the refresh token is revoked or expires, run `codex login` again and replace the auth file.
 
 ### 3. Add Integration
 1. Go to **Settings -> Devices & Services -> Add Integration -> "Codex Usage"**.

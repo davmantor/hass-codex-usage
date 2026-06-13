@@ -11,7 +11,7 @@
     },
     "error": {
       "auth_file_unreadable": "Could not read the Codex auth file",
-      "missing_access_token": "The Codex auth file does not contain an access token"
+      "missing_access_token": "The Codex auth file does not contain an access token or refresh token"
     },
     "abort": {
       "already_configured": "Codex Usage is already configured"
