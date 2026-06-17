@@ -288,7 +288,7 @@ def _get_percent(window: dict[str, Any]) -> float | int | None:
 
 def _get_reset_time(window: dict[str, Any]) -> datetime | None:
     """Return a window reset timestamp."""
-    reset_value = window.get("resetsAt") or window.get("resets_at")
+    reset_value = window.get("resetsAt") or window.get("resets_at") or window.get("reset_at")
     if reset_value is None:
         return None
 
@@ -309,6 +309,9 @@ def _get_window_minutes(window: dict[str, Any]) -> int | float | None:
     for key in ("windowDurationMins", "window_duration_mins", "window_minutes"):
         if key in window:
             return _number_or_none(window[key])
+    if "limit_window_seconds" in window:
+        v = _number_or_none(window["limit_window_seconds"])
+        return v / 60 if v is not None else None
     return None
 
 
