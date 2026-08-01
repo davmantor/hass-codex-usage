@@ -175,7 +175,9 @@ def write_auth_file_atomically(auth_file: str, auth_data: dict[str, Any]) -> Non
         raise
 
 
-def refresh_rejection_from_response(status: int, body: str) -> RefreshTokenRejectedError | None:
+def refresh_rejection_from_response(
+    status: int, body: str
+) -> RefreshTokenRejectedError | None:
     """Return a permanent refresh-token rejection for known auth failures."""
     code = _extract_refresh_error_code(body)
     normalized_code = code.lower() if code else None

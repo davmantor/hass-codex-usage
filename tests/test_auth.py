@@ -9,7 +9,10 @@ from pathlib import Path
 
 import pytest
 
-AUTH_MODULE_PATH = Path(__file__).parents[1] / "custom_components" / "hass_codex_usage" / "auth.py"
+
+AUTH_MODULE_PATH = (
+    Path(__file__).parents[1] / "custom_components" / "hass_codex_usage" / "auth.py"
+)
 
 
 def load_auth_module():
