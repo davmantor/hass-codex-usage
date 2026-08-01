@@ -92,13 +92,13 @@ def test_parse_uses_reset_horizon_for_durationless_weekly_primary() -> None:
     assert parsed["week_usage_pace"] is None
 
 
-def test_parse_uses_reset_horizon_when_primary_duration_is_non_positive() -> None:
+def test_parse_uses_reset_horizon_without_pace_for_negative_primary_duration() -> None:
     reset_time = datetime(2026, 8, 1, 18, 1, tzinfo=UTC)
     raw = {
         "rateLimits": {
             "primary": {
                 "usedPercent": 23,
-                "windowDurationMins": 0,
+                "windowDurationMins": -1,
                 "resetsAt": int(reset_time.timestamp()),
             }
         }
@@ -109,6 +109,7 @@ def test_parse_uses_reset_horizon_when_primary_duration_is_non_positive() -> Non
     assert "session_usage_percent" not in parsed
     assert parsed["week_usage_percent"] == 23
     assert parsed["week_reset_time"] == reset_time
+    assert parsed["week_usage_pace"] is None
 
 
 def test_parse_preserves_positions_when_reset_horizon_is_ambiguous() -> None:

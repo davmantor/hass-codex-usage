@@ -349,13 +349,15 @@ def _get_reset_time(window: dict[str, Any]) -> datetime | None:
 
 
 def _get_window_minutes(window: dict[str, Any]) -> int | float | None:
-    """Return a window duration in minutes."""
+    """Return a positive window duration in minutes."""
     for key in ("windowDurationMins", "window_duration_mins", "window_minutes"):
         if key in window:
-            return _number_or_none(window[key])
+            duration = _number_or_none(window[key])
+            return duration if duration is not None and duration > 0 else None
     if "limit_window_seconds" in window:
-        v = _number_or_none(window["limit_window_seconds"])
-        return v / 60 if v is not None else None
+        duration_seconds = _number_or_none(window["limit_window_seconds"])
+        if duration_seconds is not None and duration_seconds > 0:
+            return duration_seconds / 60
     return None
 
 

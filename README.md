@@ -4,9 +4,9 @@ A custom Home Assistant integration that monitors your OpenAI Codex subscription
 
 ## Sensors
 
-- **Session Usage** - Current primary Codex usage window utilization (%)
+- **Session Usage** - Current short-term Codex usage window utilization (%)
 - **Session Reset Time** - When the primary usage window resets
-- **Weekly Usage** - Current secondary Codex usage window utilization (%)
+- **Weekly Usage** - Current longer-term Codex usage window utilization (%)
 - **Weekly Usage Pace** - How far weekly usage is ahead of or behind the reset window
 - **Weekly Reset Time** - When the weekly usage window resets
 - **Credits Balance** - Remaining Codex credits when reported by the API
