@@ -13,6 +13,11 @@ A custom Home Assistant integration that monitors your OpenAI Codex subscription
 - **Credits Enabled** - Whether credits are available for the account
 - **Rate Limit Reached** - Current backend-reported limit state
 
+Usage windows are identified by their backend-reported duration rather than by
+their `primary` or `secondary` position. If OpenAI returns only the weekly
+window, the Session sensors remain installed but report `Unavailable`; they
+resume automatically if a short-term window returns.
+
 ## Installation
 
 ### HACS (recommended)
