@@ -189,9 +189,7 @@ async def _async_request_token_refresh(
     return raw
 
 
-async def _async_fetch_usage(
-    session: aiohttp.ClientSession, access_token: str
-) -> dict[str, Any]:
+async def _async_fetch_usage(session: aiohttp.ClientSession, access_token: str) -> dict[str, Any]:
     """Fetch usage data with a bearer access token."""
     headers = {
         "Authorization": f"Bearer {access_token}",

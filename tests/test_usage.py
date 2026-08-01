@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 
 from custom_components.hass_codex_usage import _parse_usage
 
-
 SESSION_RESET = datetime(2026, 8, 1, 15, 0, tzinfo=UTC)
 WEEK_RESET = datetime(2026, 8, 7, 12, 0, tzinfo=UTC)
 
