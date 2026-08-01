@@ -37,6 +37,7 @@ from .const import (
 _LOGGER = logging.getLogger(__name__)
 
 PLATFORMS = [Platform.SENSOR]
+SESSION_WINDOW_MINUTES = 5 * 60
 
 type CodexUsageConfigEntry = ConfigEntry[CodexUsageCoordinator]
 
@@ -224,19 +225,18 @@ def _parse_usage(raw: dict[str, Any]) -> dict[str, Any]:
     data: dict[str, Any] = {}
     rate_limits = _get_rate_limits(raw)
 
-    primary = _get_window(rate_limits, "primary", "primary_window")
-    if primary:
-        data["session_usage_percent"] = _get_percent(primary)
-        data["session_reset_time"] = _get_reset_time(primary)
+    session_window, week_window = _select_usage_windows(rate_limits)
+    if session_window:
+        data["session_usage_percent"] = _get_percent(session_window)
+        data["session_reset_time"] = _get_reset_time(session_window)
 
-    secondary = _get_window(rate_limits, "secondary", "secondary_window")
-    if secondary:
-        utilization = _get_percent(secondary)
-        reset_time = _get_reset_time(secondary)
+    if week_window:
+        utilization = _get_percent(week_window)
+        reset_time = _get_reset_time(week_window)
         data["week_usage_percent"] = utilization
         data["week_reset_time"] = reset_time
         data["week_usage_pace"] = _calculate_pace(
-            utilization, reset_time, _get_window_minutes(secondary)
+            utilization, reset_time, _get_window_minutes(week_window)
         )
 
     # Handle Credits (OpenAI can return a float 0.0 or a dict)
@@ -277,6 +277,37 @@ def _get_window(rate_limits: dict[str, Any], *keys: str) -> dict[str, Any] | Non
         if isinstance(window, dict):
             return window
     return None
+
+
+def _select_usage_windows(
+    rate_limits: dict[str, Any],
+) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
+    """Select session and weekly windows independently of API position."""
+    session_window: dict[str, Any] | None = None
+    week_window: dict[str, Any] | None = None
+    positioned_windows = (
+        ("session", _get_window(rate_limits, "primary", "primary_window")),
+        ("week", _get_window(rate_limits, "secondary", "secondary_window")),
+    )
+
+    for fallback, window in positioned_windows:
+        if window is None:
+            continue
+        category = _classify_window(window, fallback)
+        if category == "session" and session_window is None:
+            session_window = window
+        elif category == "week" and week_window is None:
+            week_window = window
+
+    return session_window, week_window
+
+
+def _classify_window(window: dict[str, Any], fallback: str) -> str:
+    """Classify a rate-limit window, preferring its declared duration."""
+    duration = _get_window_minutes(window)
+    if duration is not None and duration > 0:
+        return "session" if duration <= SESSION_WINDOW_MINUTES else "week"
+    return fallback
 
 
 def _get_percent(window: dict[str, Any]) -> float | int | None:
