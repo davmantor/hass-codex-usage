@@ -218,12 +218,12 @@ async def _async_fetch_usage(session: aiohttp.ClientSession, access_token: str) 
     return raw
 
 
-def _parse_usage(raw: dict[str, Any]) -> dict[str, Any]:
+def _parse_usage(raw: dict[str, Any], *, now: datetime | None = None) -> dict[str, Any]:
     """Parse raw Codex usage responses into a flat sensor data dict."""
     data: dict[str, Any] = {}
     rate_limits = _get_rate_limits(raw)
 
-    session_window, week_window = _select_usage_windows(rate_limits)
+    session_window, week_window = _select_usage_windows(rate_limits, now=now)
     if session_window:
         data["session_usage_percent"] = _get_percent(session_window)
         data["session_reset_time"] = _get_reset_time(session_window)
@@ -234,7 +234,10 @@ def _parse_usage(raw: dict[str, Any]) -> dict[str, Any]:
         data["week_usage_percent"] = utilization
         data["week_reset_time"] = reset_time
         data["week_usage_pace"] = _calculate_pace(
-            utilization, reset_time, _get_window_minutes(week_window)
+            utilization,
+            reset_time,
+            _get_window_minutes(week_window),
+            now=now,
         )
 
     # Handle Credits (OpenAI can return a float 0.0 or a dict)
@@ -278,9 +281,13 @@ def _get_window(rate_limits: dict[str, Any], *keys: str) -> dict[str, Any] | Non
 
 
 def _select_usage_windows(
-    rate_limits: dict[str, Any],
+    rate_limits: dict[str, Any], *, now: datetime | None = None
 ) -> tuple[dict[str, Any] | None, dict[str, Any] | None]:
     """Select session and weekly windows independently of API position."""
+    current_time = now or datetime.now(UTC)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=UTC)
+
     session_window: dict[str, Any] | None = None
     week_window: dict[str, Any] | None = None
     positioned_windows = (
@@ -291,7 +298,7 @@ def _select_usage_windows(
     for fallback, window in positioned_windows:
         if window is None:
             continue
-        category = _classify_window(window, fallback)
+        category = _classify_window(window, fallback, now=current_time)
         if category == "session" and session_window is None:
             session_window = window
         elif category == "week" and week_window is None:
@@ -300,11 +307,19 @@ def _select_usage_windows(
     return session_window, week_window
 
 
-def _classify_window(window: dict[str, Any], fallback: str) -> str:
-    """Classify a rate-limit window, preferring its declared duration."""
+def _classify_window(window: dict[str, Any], fallback: str, *, now: datetime) -> str:
+    """Classify a window by duration, reset horizon, then legacy position."""
     duration = _get_window_minutes(window)
     if duration is not None and duration > 0:
         return "session" if duration <= SESSION_WINDOW_MINUTES else "week"
+
+    reset_time = _get_reset_time(window)
+    if reset_time is not None:
+        if reset_time.tzinfo is None:
+            reset_time = reset_time.replace(tzinfo=UTC)
+        if reset_time > now + timedelta(minutes=SESSION_WINDOW_MINUTES):
+            return "week"
+
     return fallback
 
 
@@ -345,18 +360,24 @@ def _get_window_minutes(window: dict[str, Any]) -> int | float | None:
 
 
 def _calculate_pace(
-    utilization: float | int | None, reset_time: datetime | None, window_minutes: float | int | None
+    utilization: float | int | None,
+    reset_time: datetime | None,
+    window_minutes: float | int | None,
+    *,
+    now: datetime | None = None,
 ) -> float | None:
     """Calculate how far usage is ahead of or behind the quota window."""
     if utilization is None or reset_time is None or not window_minutes:
         return None
 
-    now = datetime.now(UTC)
+    current_time = now or datetime.now(UTC)
+    if current_time.tzinfo is None:
+        current_time = current_time.replace(tzinfo=UTC)
     if reset_time.tzinfo is None:
         reset_time = reset_time.replace(tzinfo=UTC)
 
     window_seconds = window_minutes * 60
-    elapsed = window_seconds - (reset_time - now).total_seconds()
+    elapsed = window_seconds - (reset_time - current_time).total_seconds()
     percent_elapsed = (elapsed / window_seconds) * 100
     return round(utilization - percent_elapsed, 1)
 
