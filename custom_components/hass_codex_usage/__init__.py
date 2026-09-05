@@ -240,11 +240,16 @@ def _parse_usage(raw: dict[str, Any], *, now: datetime | None = None) -> dict[st
             now=now,
         )
 
-    # Handle Credits (OpenAI can return a float 0.0 or a dict)
-    credits = rate_limits.get("credits")
+    # Handle Credits (OpenAI can return a float 0.0 or a dict). The live
+    # /wham/usage endpoint nests this at the top level of the response, as a
+    # sibling of rate_limit, not inside it -- fall back to rate_limits for
+    # any API shape that nests it there instead.
+    credits = raw.get("credits")
+    if credits is None:
+        credits = rate_limits.get("credits")
     if isinstance(credits, dict):
         data["credits_balance"] = _number_or_none(credits.get("balance"))
-        data["credits_enabled"] = credits.get("hasCredits")
+        data["credits_enabled"] = credits.get("hasCredits", credits.get("has_credits"))
     elif isinstance(credits, int | float):
         data["credits_balance"] = float(credits)
         data["credits_enabled"] = credits > 0
@@ -252,7 +257,17 @@ def _parse_usage(raw: dict[str, Any], *, now: datetime | None = None) -> dict[st
         data["credits_balance"] = 0.0
         data["credits_enabled"] = False
 
-    reached = rate_limits.get("rateLimitReachedType") or rate_limits.get("rate_limit_reached_type")
+    # Same top-level-vs-nested caveat applies to the reached-type flag; the
+    # live API also reports it as an object ({"type": ..., "details": ...})
+    # rather than a bare string.
+    reached = (
+        raw.get("rateLimitReachedType")
+        or raw.get("rate_limit_reached_type")
+        or rate_limits.get("rateLimitReachedType")
+        or rate_limits.get("rate_limit_reached_type")
+    )
+    if isinstance(reached, dict):
+        reached = reached.get("type") or reached.get("details")
     data["rate_limit_reached"] = reached or "none"
 
     return data

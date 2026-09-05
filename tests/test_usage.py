@@ -149,3 +149,41 @@ def test_parse_calculates_pace_for_weekly_window_selected_from_primary() -> None
     parsed = _parse_usage(raw, now=NOW)
 
     assert parsed["week_usage_pace"] == 27.7
+
+
+def test_parse_reads_credits_and_reached_type_from_real_wham_usage_shape() -> None:
+    """The live /wham/usage endpoint nests credits and reached-type at the
+    top level of the response, as siblings of `rate_limit` -- not inside it."""
+    raw = {
+        "plan_type": "plus",
+        "rate_limit": {
+            "allowed": False,
+            "limit_reached": True,
+            "primary_window": {
+                "used_percent": 100,
+                "limit_window_seconds": 18_000,
+                "reset_at": int(SESSION_RESET.timestamp()),
+            },
+            "secondary_window": {
+                "used_percent": 90,
+                "limit_window_seconds": 604_800,
+                "reset_at": int(WEEK_RESET.timestamp()),
+            },
+        },
+        "credits": {
+            "has_credits": True,
+            "unlimited": False,
+            "overage_limit_reached": False,
+            "balance": "194.7980000000",
+        },
+        "rate_limit_reached_type": {
+            "type": "rate_limit_reached",
+            "details": "default",
+        },
+    }
+
+    parsed = _parse_usage(raw, now=NOW)
+
+    assert parsed["credits_balance"] == 194.798
+    assert parsed["credits_enabled"] is True
+    assert parsed["rate_limit_reached"] == "rate_limit_reached"
