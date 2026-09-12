@@ -70,6 +70,22 @@ The integration reads this file at each poll and refreshes expired or near-expir
 
 The integration reads this file at each poll. It does not store your access token in the Home Assistant database.
 
+## Multiple Accounts
+
+You can add the integration once per Codex account. Each entry gets its own device, sensors, and update interval, and entries are keyed by the Codex account id from the auth file, so the same account cannot be added twice.
+
+Each account needs its own auth file, because `codex login` always writes to the single default path. Log in as one account, copy the auth file to a per-account path on the Home Assistant host, then repeat:
+
+```bash
+# after `codex login` as the first account
+cp /root/.codex/auth.json /config/.codex/auth-work.json
+
+# after `codex login` as the second account
+cp /root/.codex/auth.json /config/.codex/auth-personal.json
+```
+
+Then add the integration twice, pointing each entry at its own file. Token refreshes are written back to the file that entry was configured with, so the two entries stay independent.
+
 ## Options
 
 - **Update interval** - How often to poll the usage API (default: 300 seconds, min: 60, max: 3600).

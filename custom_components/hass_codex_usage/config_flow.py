@@ -17,6 +17,7 @@ from homeassistant.config_entries import (
 )
 from homeassistant.core import callback
 
+from .auth import build_account_unique_id
 from .const import (
     CONF_ACCOUNT_NAME,
     CONF_AUTH_FILE,
@@ -51,7 +52,7 @@ class CodexUsageConfigFlow(ConfigFlow, domain=DOMAIN):
                 account_name, subscription_level = _get_account_info(auth_data)
                 title = _build_title(account_name, subscription_level)
 
-                await self.async_set_unique_id(DOMAIN)
+                await self.async_set_unique_id(build_account_unique_id(auth_data, auth_file))
                 self._abort_if_unique_id_configured()
                 return self.async_create_entry(
                     title=title,

@@ -21,6 +21,7 @@ from .auth import (
     RefreshTokenResponseError,
     TOKEN_REFRESH_URL,
     access_token_needs_refresh,
+    build_account_unique_id,
     build_refresh_request,
     persist_refreshed_tokens,
     read_auth_file,
@@ -48,12 +49,36 @@ class _UsageUnauthorized(Exception):
 
 async def async_setup_entry(hass: HomeAssistant, entry: CodexUsageConfigEntry) -> bool:
     """Set up Codex Usage from a config entry."""
+    await _async_migrate_legacy_unique_id(hass, entry)
     coordinator = CodexUsageCoordinator(hass, entry)
     await coordinator.async_config_entry_first_refresh()
     entry.runtime_data = coordinator
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     entry.async_on_unload(entry.add_update_listener(_async_update_listener))
     return True
+
+
+async def _async_migrate_legacy_unique_id(
+    hass: HomeAssistant, entry: CodexUsageConfigEntry
+) -> None:
+    """Re-key entries created when the integration was single-instance.
+
+    Those entries used the domain as their unique ID, which would let the same
+    Codex account be added a second time under its account ID.
+    """
+    if entry.unique_id != DOMAIN:
+        return
+
+    auth_file = entry.data[CONF_AUTH_FILE]
+    try:
+        auth = await hass.async_add_executor_job(read_auth_file, auth_file)
+    except AuthFileError as err:
+        _LOGGER.debug("Cannot re-key Codex entry without a readable auth file: %s", err)
+        return
+
+    hass.config_entries.async_update_entry(
+        entry, unique_id=build_account_unique_id(auth.data, auth_file)
+    )
 
 
 async def async_unload_entry(hass: HomeAssistant, entry: CodexUsageConfigEntry) -> bool:

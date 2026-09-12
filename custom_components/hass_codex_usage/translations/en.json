@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Configure Codex Usage",
-        "description": "Enter the path to the Codex OAuth auth file on this Home Assistant host. Run `codex login` on the host first if the file does not exist.",
+        "description": "Enter the path to the Codex OAuth auth file on this Home Assistant host. Run `codex login` on the host first if the file does not exist. Add the integration once per Codex account, each pointing at that account's own auth file.",
         "data": {
           "auth_file": "Codex auth file"
         }
@@ -14,7 +14,7 @@
       "missing_access_token": "The Codex auth file does not contain an access token or refresh token"
     },
     "abort": {
-      "already_configured": "Codex Usage is already configured"
+      "already_configured": "This Codex account is already configured"
     }
   },
   "options": {

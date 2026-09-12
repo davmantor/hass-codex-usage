@@ -211,6 +211,47 @@ def refresh_rejection_from_response(
     return None
 
 
+def build_account_unique_id(auth_data: dict[str, Any], auth_file: str) -> str:
+    """Build a per-account unique ID so several Codex accounts can be added.
+
+    Prefer identifiers that survive a re-login: the account id stored by the
+    Codex CLI, then the account id claim in the ID token, then the account
+    name. Fall back to the auth file path, which at least keeps the same file
+    from being added twice.
+    """
+    tokens = auth_data.get("tokens")
+    if isinstance(tokens, dict):
+        account_id = _string_or_none(tokens.get("account_id"))
+        if account_id:
+            return account_id
+
+        claims = _optional_jwt_payload(tokens.get("id_token"))
+        if claims is not None:
+            auth_claims = claims.get("https://api.openai.com/auth")
+            if isinstance(auth_claims, dict):
+                account_id = _string_or_none(auth_claims.get("chatgpt_account_id"))
+                if account_id:
+                    return account_id
+
+            account_name = _string_or_none(claims.get("email")) or _string_or_none(
+                claims.get("name")
+            )
+            if account_name:
+                return account_name
+
+    return str(Path(auth_file).expanduser())
+
+
+def _optional_jwt_payload(token: Any) -> dict[str, Any] | None:
+    """Decode a JWT payload for display-only metadata, or None if unusable."""
+    if not isinstance(token, str):
+        return None
+    try:
+        return _decode_jwt_payload(token)
+    except ValueError:
+        return None
+
+
 def _jwt_expiration(token: str) -> datetime | None:
     payload = _decode_jwt_payload(token)
     exp = payload.get("exp")
